@@ -162,6 +162,27 @@ if filesfound == 0
     return;
 end
 
+%create a log file where 'bad filenames' can be written for double checking
+% Open file for writing
+% Get current date and time
+currentDateTime = datetime('now');
+
+% Format date and time as a string
+dateString = datestr(currentDateTime, 'yyyy-mm-dd_HH-MM-SS');
+
+% Create filename using date string
+fileName = ['badfiles_' dateString '.txt'];
+
+% Open file for writing
+fileID = fopen(fullfile(dirsave,fileName), 'w');
+
+% Write some text to the file
+fprintf(fileID, 'Log of bad files.\n');
+
+% Close the file
+fclose(fileID);
+
+
 %start a timer
 t1 = tic;
 
@@ -178,8 +199,26 @@ if useParallel == 1
         %indicate which participant is being processed and the progress
         fprintf('\n******\nProcessing participant %s\n******\n',filenames{ii});
         
-        %process the data file
-        prepare_eeg(filenames{ii}, dirwork, dirsave);
+        try
+            
+            %process the data file
+            prepare_eeg(filenames{ii}, dirwork, dirsave);
+            
+        catch
+            
+            % Handle any exceptions that occurred
+            fprintf('\n******\nAn error occurred for %s\n******\n',filenames{ii});
+            
+            % Open file for appending
+            fileID = fopen(fullfile(dirsave,fileName), 'a');
+            
+            % Append bad file name
+            fprintf(fileID, '%s\n', filenames{ii});
+            
+            % Close file
+            fclose(fileID);
+            
+        end
         
     end
     
@@ -194,8 +233,26 @@ elseif useParallel == 0
         %indicate which participant is being processed and the progress
         fprintf('\n******\nProcessing participant %s\n******\n',filenames{ii});
         
-        %process the data file
-        prepare_eeg(filenames{ii}, dirwork, dirsave);
+        try
+            
+            %process the data file
+            prepare_eeg(filenames{ii}, dirwork, dirsave);
+            
+        catch
+            
+            % Handle any exceptions that occurred
+            fprintf('\n******\nAn error occurred for %s\n******\n',filenames{ii});
+            
+            % Open file for appending
+            fileID = fopen(fullfile(dirsave,fileName), 'a');
+            
+            % Append bad file name
+            fprintf(fileID, '%s\n', filenames{ii});
+            
+            % Close file
+            fclose(fileID);
+            
+        end
         
         %just keeping track of the participant being processed
         fprintf('Finished participant %d of %d\n', ii, length(filenames));
@@ -224,16 +281,16 @@ name_split = strsplit(tempname,'_');
 subjid = name_split{2};
 
 %task for recording
-task = name_split{1};
+task = lower(name_split{3});
 
 %order of presentation
-torder = name_split{3};
+torder = name_split{4};
 
 %load .mff file
 EEG = pop_mffimport(fullfile(wrkdir,subject), {'code'});
 
 %rename
-savename = [subjid '_' task '_' torder '.set'];
+savename = ['FF_' subjid '_' task '_' torder '.set'];
 
 %put the name of file in the dataset
 EEG.setname = savename;
@@ -248,19 +305,20 @@ eplabdir = fileparts(which('ep.m'));
 EEG = pop_chanedit(EEG, 'lookup',...
     fullfile(eplabdir,...
     'electrodes',...
+    'old EGI Hydrocel',...
     'GSN-Hydrocel-129.ced'));
 
 
 %Use ERPLab for filtering
 % IIR Butterworth
-% 4th order (24 dB/oct)
-% .01 to 30 Hz half-amplitude cutoffs
+% 6th order (36dB/oct)
+% .01 to 15 Hz half-amplitude cutoffs
 % ignore online reference (129)
 EEG = pop_basicfilter(EEG, 1:128,...
-    'Cutoff', [.01 30],...
+    'Cutoff', [.01 15],...
     'Design', 'butter',...
     'Filter', 'bandpass',...
-    'Order', 4,...
+    'Order', 6,...
     'Boundary','');
 
 %get the nevents of events to cycle through
@@ -276,7 +334,7 @@ for ii = 1:nevents
                 case '1'
                     EEG.event(ii).type = 'cor'; %correct
             end
-        elseif strcmp(EEG.event(ii+2).code,'TRSP')
+        elseif (ii+2 <= nevents) && strcmp(EEG.event(ii+2).code,'TRSP')
             switch EEG.event(ii+2).mffkey_eval
                 case '0'
                     EEG.event(ii).type = 'err'; %error
@@ -290,8 +348,8 @@ end
 
 
 %epoch response-locked -400 to 800ms
-EEG = pop_epoch(EEG, {'cor' 'err'}, [-.4 .8],... 
-    'newname', [subjid '_' task '_' torder],... 
+EEG = pop_epoch(EEG, {'cor' 'err'}, [-.4 .8],...
+    'newname', [subjid '_' lower(task) '_' torder],...
     'epochinfo', 'yes');
 
 %remove unused epoch markers
